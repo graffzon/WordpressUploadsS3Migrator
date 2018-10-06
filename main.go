@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -29,7 +29,7 @@ func main() {
 	// Step 2. Instead of creating a list, upload each file into S3
 	//  If smth is not uploaded - print the error.
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-west-1")},
+		Region: aws.String("eu-central-1")},
 	)
 	if err != nil {
 		fmt.Println(err)
@@ -40,28 +40,31 @@ func main() {
 	fmt.Println(uploader)
 
 	bucket := "zonovme-assets"
-	key := "foo/bar" + files[0]
-	file, err := os.Open(files[0])
-	if err != nil {
-		log.Fatal(err)
-	}
-	upParams := &s3manager.UploadInput{
-		Bucket: &bucket,
-		Key:    &key,
-		Body:   file,
+	for _, filename := range files {
+		key := "uploads/" + strings.Replace(filename, wordpressUploadsFolder, "", 1)
+		file, err := os.Open(filename)
+		if err != nil {
+			fmt.Println(err)
+		}
+		upParams := &s3manager.UploadInput{
+			Bucket: &bucket,
+			Key:    &key,
+			Body:   file,
+		}
+		_, err = uploader.Upload(upParams)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	// Perform an upload.
-	result, err := uploader.Upload(upParams)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(result)
+	fmt.Println("Alright!")
 
 	// Step 3. After file uploaded, find it in the dump and change the path
 }
 
 func uploadsNames(folder string) []string {
+	fmt.Println("Looking into: " + folder)
 	// var files []os.FileInfo
 	var names []string
 
@@ -74,7 +77,7 @@ func uploadsNames(folder string) []string {
 		if file.IsDir() {
 			names = append(names, uploadsNames(folder+"/"+file.Name())...)
 		} else {
-			names = append(names, folder+file.Name())
+			names = append(names, folder+"/"+file.Name())
 		}
 	}
 	return names
