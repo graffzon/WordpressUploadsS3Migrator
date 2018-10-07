@@ -22,4 +22,4 @@ I would really appreciate your contribution. Here are some things you could do:
 4. Add tests
 5. Improve the documentation
 
-If I haven't mention something, but you still want to contribute - feel free to submit an issue or a PR.
+If I haven't mentioned something, but you still want to contribute - feel free to submit an issue or a PR.
