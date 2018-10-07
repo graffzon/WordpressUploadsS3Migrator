@@ -12,15 +12,6 @@ import (
 )
 
 func main() {
-	// wordpressDumpPath := os.Args[1]
-	// wordpressDumpBytes, err := ioutil.ReadFile(wordpressDumpPath)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// wordpressDump := string(wordpressDumpBytes)
-	// fmt.Println(wordpressDump(1)) // remove later
-	//
-
 	// Step 1. Create a list of files
 	wordpressUploadsFolder := os.Args[2]
 	files := uploadsNames(wordpressUploadsFolder)
@@ -40,6 +31,9 @@ func main() {
 	fmt.Println(uploader)
 
 	bucket := "zonovme-assets"
+	uploadedBasePath := ""
+	acl := "public-read"
+
 	for _, filename := range files {
 		key := "uploads/" + strings.Replace(filename, wordpressUploadsFolder, "", 1)
 		file, err := os.Open(filename)
@@ -50,17 +44,41 @@ func main() {
 			Bucket: &bucket,
 			Key:    &key,
 			Body:   file,
+			ACL:    &acl,
 		}
-		_, err = uploader.Upload(upParams)
+		result, err := uploader.Upload(upParams)
 		if err != nil {
 			fmt.Println(err)
 		}
+		if uploadedBasePath == "" {
+			fmt.Println("key: " + strings.Replace(filename, wordpressUploadsFolder, "", 1))
+			fmt.Println("location: " + result.Location)
+			uploadedBasePath = strings.Replace(result.Location, strings.Replace(filename, wordpressUploadsFolder, "", 1), "", 1)
+		}
 	}
+	fmt.Println(uploadedBasePath)
 
 	// Perform an upload.
 	fmt.Println("Alright!")
 
 	// Step 3. After file uploaded, find it in the dump and change the path
+	wordpressDumpPath := os.Args[1]
+	wordpressDumpBytes, err := ioutil.ReadFile(wordpressDumpPath)
+	if err != nil {
+		fmt.Println(err)
+	}
+	wordpressDump := string(wordpressDumpBytes)
+
+	wordpressUploadsWebPath := os.Args[3]
+	for _, filename := range files {
+		fullFileNameInDump := strings.Replace(filename, wordpressUploadsFolder, wordpressUploadsWebPath, 1)
+		fullFileNameInS3 := strings.Replace(filename, wordpressUploadsFolder, uploadedBasePath, 1)
+		fmt.Println("fullFileNameInDump: " + fullFileNameInDump + "        \n fullFileNameInS3:" + fullFileNameInS3)
+
+		wordpressDump = strings.Replace(wordpressDump, fullFileNameInDump, fullFileNameInS3, -1)
+	}
+	ioutil.WriteFile(wordpressDumpPath, []byte(wordpressDump), 0644)
+	fmt.Println(wordpressDump[1])
 }
 
 func uploadsNames(folder string) []string {
