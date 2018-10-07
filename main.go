@@ -22,7 +22,8 @@ func main() {
 
 	// Step 1. Create a list of files
 	files := getUploadsNames(wordpressUploadsFolder)
-	fmt.Println("Number of files to be sent: " + string(len(files)))
+	fmt.Println("Number of files to be sent: ")
+	fmt.Println(len(files))
 
 	// Step 2. Upload each file from the list into S3.
 	//  If smth is not uploaded - print the error.
@@ -71,33 +72,49 @@ func uploadFilesToS3(files []string, wordpressUploadsFolder string, bucketName s
 	}
 
 	acl := "public-read"
-	uploader := s3manager.NewUploader(sess)
-	objects := []s3manager.BatchUploadObject{}
 
-	for _, filename := range files {
-		key := "uploads/" + strings.Replace(filename, wordpressUploadsFolder, "", 1)
-		file, err := os.Open(filename)
-		if err != nil {
-			fmt.Println(err)
-		}
-		upParams := []s3manager.BatchUploadObject{
-			{
-				Object: &s3manager.UploadInput{
-					Bucket: &bucketName,
-					Key:    &key,
-					Body:   file,
-					ACL:    &acl,
+	batchSize := 20
+
+	for startPointer := 0; startPointer < len(files); startPointer += batchSize {
+		var openedFiles []os.File
+
+		uploader := s3manager.NewUploader(sess)
+		objects := []s3manager.BatchUploadObject{}
+		endPointer := startPointer + batchSize
+		fmt.Println("Uploading files from ")
+		fmt.Println(startPointer)
+		fmt.Println(" to ")
+		fmt.Println(endPointer)
+
+		for _, filename := range files[startPointer:endPointer] {
+			key := "uploads/" + strings.Replace(filename, wordpressUploadsFolder, "", 1)
+			file, err := os.Open(filename)
+			openedFiles = append(openedFiles, *file)
+			if err != nil {
+				fmt.Println(err)
+			}
+			upParams := []s3manager.BatchUploadObject{
+				{
+					Object: &s3manager.UploadInput{
+						Bucket: &bucketName,
+						Key:    &key,
+						Body:   file,
+						ACL:    &acl,
+					},
 				},
-			},
+			}
+
+			objects = append(objects, upParams...)
 		}
-
-		objects = append(objects, upParams...)
+		iter := &s3manager.UploadObjectsIterator{Objects: objects}
+		if err := uploader.UploadWithIterator(aws.BackgroundContext(), iter); err != nil {
+			return err
+		}
+		for _, file := range openedFiles {
+			file.Close()
+		}
 	}
 
-	iter := &s3manager.UploadObjectsIterator{Objects: objects}
-	if err := uploader.UploadWithIterator(aws.BackgroundContext(), iter); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -108,10 +125,9 @@ func replaceOldURLsWithNew(files []string, wordpressDump string, wordpressDumpPa
 		fullFileNameInDump := strings.Replace(filename, wordpressUploadsFolder, wordpressUploadsWebPath, 1)
 		fullFileNameInS3 := strings.Replace(filename, wordpressUploadsFolder, bucketUrl, 1)
 		// Uncomment if you want to see all the files' names
-		// fmt.Println("fullFileNameInDump: " + fullFileNameInDump + "\n fullFileNameInS3:" + fullFileNameInS3)
+		fmt.Println("fullFileNameInDump: " + fullFileNameInDump + "\n fullFileNameInS3:" + fullFileNameInS3)
 
 		wordpressDump = strings.Replace(wordpressDump, fullFileNameInDump, fullFileNameInS3, -1)
 	}
 	ioutil.WriteFile(wordpressDumpPath, []byte(wordpressDump), 0644)
-	fmt.Println(wordpressDump[1])
 }
