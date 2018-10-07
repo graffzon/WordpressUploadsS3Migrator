@@ -11,15 +11,18 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
+const bucketRegion = "eu-central-1"
+const bucketName = "zonovme-assets"
+
 func main() {
 	// Step 1. Create a list of files
 	wordpressUploadsFolder := os.Args[2]
 	files := getUploadsNames(wordpressUploadsFolder)
 	fmt.Println(len(files))
 
-	// Step 2. Upload each file from the list into S3
+	// Step 2. Upload each file from the list into S3.
 	//  If smth is not uploaded - print the error.
-	S3BasePath, err := uploadFilesToS3(files, wordpressUploadsFolder)
+	err := uploadFilesToS3(files, wordpressUploadsFolder)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -34,7 +37,7 @@ func main() {
 	wordpressDump := string(wordpressDumpBytes)
 
 	wordpressUploadsWebPath := os.Args[3]
-	replaceOldURLsWithNew(files, wordpressDump, wordpressDumpPath, wordpressUploadsFolder, wordpressUploadsWebPath, S3BasePath)
+	replaceOldURLsWithNew(files, wordpressDump, wordpressDumpPath, wordpressUploadsFolder, wordpressUploadsWebPath)
 }
 
 func getUploadsNames(folder string) []string {
@@ -56,22 +59,23 @@ func getUploadsNames(folder string) []string {
 	return names
 }
 
-func uploadFilesToS3(files []string, wordpressUploadsFolder string) (string, error) {
+func uploadFilesToS3(files []string, wordpressUploadsFolder string) error {
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
+		Region: aws.String(bucketRegion)},
 	)
 	if err != nil {
 		fmt.Println(err)
-		return "", err
+		return err
 	}
 
 	uploader := s3manager.NewUploader(sess)
 
-	bucket := "zonovme-assets"
+	bucket := bucketName
 	acl := "public-read"
 
 	// Will be taken from the first upload
-	S3BasePath := ""
+	objects := []s3manager.BatchUploadObject{}
+	// S3BasePath := ""
 
 	for _, filename := range files {
 		key := "uploads/" + strings.Replace(filename, wordpressUploadsFolder, "", 1)
@@ -79,34 +83,47 @@ func uploadFilesToS3(files []string, wordpressUploadsFolder string) (string, err
 		if err != nil {
 			fmt.Println(err)
 		}
-		upParams := &s3manager.UploadInput{
-			Bucket: &bucket,
-			Key:    &key,
-			Body:   file,
-			ACL:    &acl,
+		upParams := []s3manager.BatchUploadObject{
+			{
+				Object: &s3manager.UploadInput{
+					Bucket: &bucket,
+					Key:    &key,
+					Body:   file,
+					ACL:    &acl,
+				},
+			},
 		}
-		result, err := uploader.Upload(upParams)
-		if err != nil {
-			fmt.Println(err)
-		}
-		if S3BasePath == "" {
-			fmt.Println("key: " + strings.Replace(filename, wordpressUploadsFolder, "", 1))
-			fmt.Println("location: " + result.Location)
-			S3BasePath = strings.Replace(result.Location, strings.Replace(filename, wordpressUploadsFolder, "", 1), "", 1)
-		}
-	}
-	fmt.Println(S3BasePath)
 
-	return S3BasePath, nil
+		objects = append(objects, upParams...)
+
+		// result, err := uploader.Upload(upParams)
+		// if err != nil {
+		// 	fmt.Println(err)
+		// }
+		// if S3BasePath == "" {
+		// 	fmt.Println("key: " + strings.Replace(filename, wordpressUploadsFolder, "", 1))
+		// 	fmt.Println("location: " + result.Location)
+		// 	S3BasePath = strings.Replace(result.Location, strings.Replace(filename, wordpressUploadsFolder, "", 1), "", 1)
+		// }
+	}
+	// fmt.Println(S3BasePath)
+
+	iter := &s3manager.UploadObjectsIterator{Objects: objects}
+	if err := uploader.UploadWithIterator(aws.BackgroundContext(), iter); err != nil {
+		return err
+	}
+	return nil
 }
 
-func replaceOldURLsWithNew(files []string, wordpressDump string, wordpressDumpPath string, wordpressUploadsFolder string, wordpressUploadsWebPath string, S3BasePath string) {
+func replaceOldURLsWithNew(files []string, wordpressDump string, wordpressDumpPath string, wordpressUploadsFolder string, wordpressUploadsWebPath string) {
+	// replace `uploads` with a variable
+	bucketUrl := "https://" + bucketName + ".s3." + bucketRegion + ".amazonaws.com/uploads"
 	for _, filename := range files {
 		fullFileNameInDump := strings.Replace(filename, wordpressUploadsFolder, wordpressUploadsWebPath, 1)
-		fullFileNameInS3 := strings.Replace(filename, wordpressUploadsFolder, S3BasePath, 1)
+		fullFileNameInS3 := strings.Replace(filename, wordpressUploadsFolder, bucketUrl, 1)
 		fmt.Println("fullFileNameInDump: " + fullFileNameInDump + "        \n fullFileNameInS3:" + fullFileNameInS3)
 
-		wordpressDump = strings.Replace(wordpressDump, fullFileNameInDump, fullFileNameInS3, -1)
+		// wordpressDump = strings.Replace(wordpressDump, fullFileNameInDump, fullFileNameInS3, -1)
 	}
 	ioutil.WriteFile(wordpressDumpPath, []byte(wordpressDump), 0644)
 	fmt.Println(wordpressDump[1])
